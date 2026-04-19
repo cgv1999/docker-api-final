@@ -1,0 +1,100 @@
+---
+name: project_mfti
+
+services:
+  itisdb:
+    image: postgres:16
+    container_name: itisdb
+    restart: always
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: dbname
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d dbname"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - prod
+      - dev
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+
+  mlserver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mlserver
+    restart: always
+    profiles:
+      - prod
+      - dev
+    networks:
+      - internal
+    volumes:
+      - app_data:/app/data
+    depends_on:
+      itisdb:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2500M
+        reservations:
+          cpus: "1.0"
+          memory: 200M
+
+  webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: webserver
+    restart: always
+    profiles:
+      - prod
+    ports:
+      - "8000:8000"
+    networks:
+      - internal
+      - external
+    environment:
+      DSN: "postgresql://user:password@itisdb:5432/dbname"
+    depends_on:
+      itisdb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 50s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2500M
+        reservations:
+          cpus: "1.0"
+          memory: 200M
+
+networks:
+  internal:
+    driver: bridge
+  external:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  app_data:
